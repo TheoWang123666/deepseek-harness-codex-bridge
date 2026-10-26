@@ -1,37 +1,36 @@
 # DeepSeek Harness ↔ Codex Bridge
 
-[简体中文](README.md) | English
+[简体中文](README.md) | English | [Windows guide](WINDOWS.md)
 
-An unofficial, local MCP bridge that lets Codex and [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) work on the same job.
+Version `0.2.9-windows.2`. Based on [Aloneswork/deepseek-harness-codex-bridge](https://github.com/Aloneswork/deepseek-harness-codex-bridge), with native Windows support, fixed project conversations, incremental shared context and queued-reply recovery. See [UPSTREAM.md](UPSTREAM.md) and the original [MIT license](LICENSE).
 
-Codex stays in charge. It can send a bounded subtask to DeepSeek Harness (DSH), receive progress and evidence, reply through a persistent mailbox, and verify the final result. DSH can also start or continue a real Codex task while DSH is running. The bridge blocks circular hand-offs: an agent must do its assigned subtask instead of returning it unchanged.
+This unofficial local MCP bridge is not affiliated with or endorsed by DeepSeek or OpenAI. Users provide their own configuration. The source does not include account credentials, project bindings or chat history.
 
-No database server or resident daemon is required. Mailbox data stays in local JSON files.
+## Features
 
-## Install
+- Codex delegates bounded tasks to DSH; DSH can contact Codex through `ask_codex` or the CLI.
+- Set `DSH_BRIDGE_LEAD=dsh` for DSH-led coordination. The compatibility default is Codex-led.
+- Linked projects reuse one Codex conversation and one compatible existing DSH headless session. Busy, invalid or timed-out calls do not silently open replacements.
+- Shared records are delivered incrementally per project, direction and native session. Entries outside the current budget remain pending; long records have complete snapshot/index paths.
+- Queue acceptance is not completion. Context is acknowledged only after the actual final reply, and pending retries retain their original snapshot.
+- Windows, macOS and Linux are supported. Windows can discover the official desktop CLI without WSL.
 
-Requirements:
+## Setup
 
-- macOS or Linux
-- Node.js `>=22.19.0`
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), installed and configured
-- Codex CLI with `codex app-server` (required only for proactive DSH → Codex chats)
+Requirements: Node.js `>=22.19.0`, configured [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), and Codex CLI for DSH → Codex requests. Follow DSH's own higher runtime requirements where applicable; Node.js 24 LTS is recommended.
 
-Install DSH first if needed, then configure a model in its Web UI:
-
-```sh
-npm install --global @deepseek-ai/dsh
-dsh web
-```
-
-Install the bridge and register it in Codex:
+Download this repository's source, then run in its directory:
 
 ```sh
-npm install --global https://github.com/Aloneswork/deepseek-harness-codex-bridge/releases/download/v0.2.2/deepseek-harness-mcp-bridge-0.2.2.tgz
-codex mcp add deepseek_harness -- deepseek-harness-mcp
+npm ci --ignore-scripts
+npm test
+npm run check
+node ./diagnose.mjs --mcp-config
 ```
 
-Recommended Codex MCP settings in `~/.codex/config.toml`:
+The last command only prints configuration for this checkout. Merge it into your own `~/.codex/config.toml`, preserve existing entries, and reload the relevant MCP server. The upstream URL is attribution; an upstream release does not necessarily contain this build's enhancements.
+
+The generated configuration enables four Codex task tools by default. For project pairing and shared context, keep its generated `command` and `args` and extend the same section's tool list:
 
 ```toml
 [mcp_servers.deepseek_harness]
@@ -41,85 +40,65 @@ enabled_tools = [
   "list_deepseek_messages",
   "reply_to_deepseek",
   "get_bridge_task_status",
+  "list_project_links",
+  "read_project_context",
+  "share_project_context",
 ]
-default_tools_approval_mode = "approve"
 ```
 
-Automatic approval is appropriate only when the user has already authorized DSH calls without confirmation. It never grants permission for destructive actions, publishing, paid services, credentials, or sensitive-data transfer.
+On DSH, configure the same `server.mjs` as an MCP server with `DSH_BRIDGE_ROLE=dsh` to expose `ask_codex`. Both roles provide the three project tools. Set `DSH_CODEX_MAILBOX_DIR` to the same private mailbox for shared state. Choose the same `DSH_BRIDGE_LEAD` on both ends. Tool configuration never extends the user's authorization for a task.
 
-## Verify
-
-Start a new Codex task after registering the MCP, then ask Codex to delegate a harmless test such as “return the first 10 digits of pi.” Codex should receive the DSH result through `delegate_to_deepseek` and report what DSH did.
-
-To test from source:
+To explicitly opt into DSH's own stored desktop login:
 
 ```sh
-git clone https://github.com/Aloneswork/deepseek-harness-codex-bridge.git
-cd deepseek-harness-codex-bridge
-npm install
-npm test
+node ./diagnose.mjs --mcp-config --stored-auth
 ```
 
-## One-line prompt for your agent
+The bundled `profiles/headless-stored-auth.yml` is a generic launch template without credentials. DSH reads its own valid login; the bridge does not extract or copy tokens. Otherwise DSH's default headless authentication applies. See [WINDOWS.md](WINDOWS.md) for executable selection and Windows configuration.
 
-> Install and configure the Codex ↔ DeepSeek Harness MCP bridge from https://github.com/Aloneswork/deepseek-harness-codex-bridge; inspect Node.js, Codex, DSH, and existing configs first, preserve and back up current settings, run the bidirectional messaging smoke test, then report every changed file, call path, and test result.
+## Bind existing conversations
 
-## What is installed
-
-- `deepseek-harness-mcp`: stdio MCP server used by Codex or another MCP client.
-- `dsh-codex-mail`: mailbox and proactive-chat CLI available to DSH through Bash.
-
-The MCP server exposes:
-
-- `delegate_to_deepseek`: create a DSH-owned task and run it headlessly.
-- `list_deepseek_messages`: read DSH progress, evidence, questions, blockers, and results.
-- `reply_to_deepseek`: write a persistent reply that DSH can read.
-- `get_bridge_task_status`: inspect ownership, state, workspace, and linked Codex task.
-
-DSH receives `rootTaskId` and `taskId` in every delegated prompt. It can send progress from its shell:
+Every name, path and ID below is an **example placeholder**. Substitute existing workspace directories and verified existing native IDs:
 
 ```sh
-dsh-codex-mail send \
-  --root-task-id ROOT_ID \
-  --task-id TASK_ID \
-  --kind milestone \
-  --body "Parser inspection completed" \
-  --progress "100%" \
-  --evidence "fixture passed"
+node ./server.mjs link-projects --name example-project --codex-workspace /absolute/codex-workspace --dsh-workspace /absolute/dsh-workspace
+node ./server.mjs bind-project-conversation --link-id example-project --thread-id EXISTING_CODEX_THREAD_ID --reason "Select the existing collaboration conversation"
+node ./server.mjs bind-project-dsh-session --link-id example-project --session-id EXISTING_DSH_SESSION_ID --reason "Select a compatible existing headless session"
+node ./server.mjs project-links
 ```
 
-It can proactively contact Codex while DSH is executing:
+A linked project without a default DSH binding or explicit existing DSH session ID is rejected; it is not auto-created. Ordinary Codex requests can omit both session IDs:
+
+```json
+{"projectLinkId":"example-project","task":"Inspect this minimal reproduction and return findings."}
+```
+
+DSH uses `ask_codex` with `message` and concise progress or evidence:
+
+```json
+{"projectLinkId":"example-project","message":"Review the boundaries of this change.","progress":"A minimal reproduction is ready.","evidence":"Relevant files and test summary."}
+```
+
+Keep the returned `taskId` and receipt for an unfinished request. A justified new Codex conversation requires `newConversation: true` and a nonempty `newConversationReason`; existing tasks cannot silently change their binding. Rebinding DSH is explicit and requires a reason. Do not bypass busy, queued or timed-out calls with another conversation.
+
+## Tools and CLI
+
+The Codex role has four task tools: `delegate_to_deepseek`, `list_deepseek_messages`, `reply_to_deepseek` and `get_bridge_task_status`. Both roles have `list_project_links`, `read_project_context` and `share_project_context`. The DSH role also has `ask_codex`.
+
+`deepseek-harness-mcp` is the stdio MCP entry point. `dsh-codex-mail` provides mailbox and chat commands; a source checkout can use `node ./server.mjs` for the same commands:
 
 ```sh
-dsh-codex-mail chat \
-  --root-task-id ROOT_ID \
-  --task-id TASK_ID \
-  --kind question \
-  --body "Should the parser keep this fallback?" \
-  --progress "All fixtures pass" \
-  --evidence "test output attached" \
-  --workspace /absolute/project/path
+node ./server.mjs help
 ```
 
-The first `chat` call creates and names a Codex task. Later calls with the same `taskId` continue that task. This is active initiation, not an always-running agent: after DSH stops, an external scheduler must start it again before it can send another message.
+`send`, `inbox`, `status` and `chat` track assigned tasks. Linked workflows use their default binding; the first unlinked `chat` can still create a Codex thread. After DSH stops, another external invocation is needed to resume collaboration. This is not an always-online chat bot.
 
-## Storage and limits
+## Data and verification
 
-- Messages and task records default to `~/.dsh-codex-bridge/` and use local-only file permissions.
-- Do not commit or share the mailbox; prompts and replies may contain project data.
-- The MCP client timeout should be at least `DSH_BRIDGE_TIMEOUT_MS` (default `900000`).
-- Delegated prompts are limited to 16,000 characters. Put large inputs in workspace files and delegate by path.
-- Optional variables: `DSH_BIN`, `CODEX_BIN`, `DSH_CODEX_MAILBOX_DIR`, `DSH_BRIDGE_TIMEOUT_MS`, and `DSH_CODEX_CHAT_TIMEOUT_MS`.
+Messages, bindings and delivery state default to `~/.dsh-codex-bridge/`; complete context snapshots may be stored under a workspace's `.dsh-codex-bridge/`. These are user runtime data and should not be committed or shared. Shared-context tools exchange explicitly published summaries, not private chat-history scans.
 
-## Recommended collaboration rule
+Use workspace files for large inputs and avoid copying all shared records into every request. The default timeout is `900000` milliseconds; the MCP client timeout should not be shorter. Optional environment variables include `DSH_BIN`, `DSH_DESKTOP_DIR`, `DSH_BRIDGE_PATCH`, `CODEX_BIN`, `DSH_CODEX_MAILBOX_DIR`, `DSH_BRIDGE_TIMEOUT_MS`, `DSH_CODEX_CHAT_TIMEOUT_MS`, `DSH_BRIDGE_ROLE` and `DSH_BRIDGE_LEAD`.
 
-```md
-- Codex owns framing, decomposition, coordination, decisions, integration, verification, and the final answer.
-- Codex may call DSH without asking first only when the user has authorized that workflow.
-- DSH must execute an assigned subtask and must not return or re-delegate it unchanged.
-- DSH may contact Codex only with progress, evidence, a result, a progress-backed question, or an explicit blocker.
-- Avoid simultaneous edits to the same files. Delegation never expands the user's authorization.
-- After every DSH call, report what was delegated, what DSH returned or changed, and what Codex accepted, changed, or rejected.
-```
+`npm test` uses isolated temporary directories and fake agents, without an account or model call. Live verification needs the user's own model/login configuration, authorization and actual final replies. Cross-platform CI definitions are included; consult actual runs for the relevant commit before claiming a platform passed.
 
-MIT licensed. Not affiliated with or endorsed by DeepSeek or OpenAI.
+`npm pack` creates a local archive. Review its real file list before publishing; omit mailboxes, real configuration, logs and test evidence. Preserve the original MIT license and copyright notices in the source and distributions.
