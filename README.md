@@ -1,37 +1,38 @@
 # DeepSeek Harness ↔ Codex 双向协作桥
 
-简体中文 | [English](README.en.md)
+简体中文 | [English](README.en.md) | [Windows 说明](WINDOWS.md)
 
-这是一个非官方、本地运行的 MCP 桥，让 Codex 和 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 在同一项任务上分工协作。
+本分支文档撰稿与整理：**TheoWang123666、Codex（OpenAI AI 助手）**。
 
-Codex 负责主导、拆解和验收；它可以把边界清楚的子任务交给 DeepSeek Harness（DSH），接收进度与证据，通过持久消息盒子回复，再决定是否采用结果。DSH 运行时也能主动新建或继续一个真实的 Codex 任务。桥会阻止循环甩锅：接到子任务的 Agent 必须实际执行，不能把原任务原样退回。
+版本：`0.2.9-windows.2`。本代码基于 [Aloneswork/deepseek-harness-codex-bridge](https://github.com/Aloneswork/deepseek-harness-codex-bridge)，增加原生 Windows 支持、项目固定会话、增量共享上下文与排队回复恢复。来源与基础版本见 [UPSTREAM.md](UPSTREAM.md)，原 MIT 许可证完整保留于 [LICENSE](LICENSE)。
 
-不需要数据库服务或常驻守护进程，消息只保存在本机 JSON 文件中。
+这是非官方的本地 MCP 桥，与 DeepSeek、OpenAI 均无隶属或官方认可关系。运行配置由使用者自行提供；源码不包含账号凭据、项目绑定或聊天记录。
 
-## 安装
+## 通用功能
 
-需要：
+- Codex 向 DSH 委派有明确范围的任务；DSH 可通过 `ask_codex` 或终端命令联系 Codex。
+- `DSH_BRIDGE_LEAD=dsh` 选择 DSH 主导模式；未设置时保持 Codex 主导的兼容模式。
+- 配对项目复用一个 Codex 对话和一个兼容的 DSH headless 会话；忙碌、无效或超时不自动另开。
+- 共享记录按项目、方向、原生会话增量投递。预算放不下的条目继续等待；长记录提供完整快照和索引。
+- 排队受理不等于完成。只有取得相应回合的真实最终回复才确认上下文已送达；重试保留原快照。
+- 支持 Windows、macOS、Linux。Windows 可发现官方桌面版内置 CLI，不需要 WSL。
 
-- macOS 或 Linux
-- Node.js `>=22.19.0`
-- 已安装并配置 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
-- Codex CLI；只有 DSH 主动联系 Codex 时才需要 `codex app-server`
+## 安装与配置
 
-如未安装 DSH，先执行下面两行，并在 Web 界面中配置模型：
+需要 Node.js `>=22.19.0`、已配置的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)，以及用于 DSH → Codex 通信的 Codex CLI。当前 DSH 的运行要求更高时，应遵守其要求；建议 Node.js 24 LTS。
 
-```sh
-npm install --global @deepseek-ai/dsh
-dsh web
+下载本仓库的源码后，在源码目录执行：
+
+```powershell
+npm ci --ignore-scripts
+npm test
+npm run check
+node .\diagnose.mjs --mcp-config
 ```
 
-安装桥并注册到 Codex：
+诊断命令只打印此份源码对应的配置。将输出合并到自己的 `~/.codex/config.toml`，保留已有设置，随后重载对应 MCP 服务。上游链接用于注明来源；上游发布包不一定包含本版的增强功能。
 
-```sh
-npm install --global https://github.com/Aloneswork/deepseek-harness-codex-bridge/releases/download/v0.2.2/deepseek-harness-mcp-bridge-0.2.2.tgz
-codex mcp add deepseek_harness -- deepseek-harness-mcp
-```
-
-建议在 `~/.codex/config.toml` 中使用：
+`diagnose.mjs --mcp-config` 默认启用四个 Codex 任务工具。使用项目配对与共享记录时，在同一配置节保留生成的 `command`、`args`，将工具列表扩展为：
 
 ```toml
 [mcp_servers.deepseek_harness]
@@ -41,85 +42,67 @@ enabled_tools = [
   "list_deepseek_messages",
   "reply_to_deepseek",
   "get_bridge_task_status",
+  "list_project_links",
+  "read_project_context",
+  "share_project_context",
 ]
-default_tools_approval_mode = "approve"
 ```
 
-只有用户已经授权无需逐次确认调用 DSH 时，才应自动批准这些 MCP 工具。自动批准不包含删除、公开发布、付费服务、凭据或敏感数据传输等额外权限。
+这些设置不授予任务以外的权限。是否免逐次确认调用，由使用者明确授权。
 
-## 验证
+DSH 端运行同一 `server.mjs`，在其 MCP 配置中设置 `DSH_BRIDGE_ROLE=dsh`，即可提供 `ask_codex`。双方都提供三个项目工具；需要两端共享状态时，`DSH_CODEX_MAILBOX_DIR` 应指向同一个由使用者保管的私有邮箱目录。协作主导方向可在两端一致设置 `DSH_BRIDGE_LEAD`。
 
-注册 MCP 后新开一个 Codex 任务，让 Codex 委派一个无害测试，例如“返回圆周率前 10 位”。Codex 应通过 `delegate_to_deepseek` 收到 DSH 结果，并向用户说明 DSH 做了什么。
+如需复用 DSH 自己保存的桌面账号登录，可打印显式选择的认证 overlay 配置：
 
-如需从源码测试：
-
-```sh
-git clone https://github.com/Aloneswork/deepseek-harness-codex-bridge.git
-cd deepseek-harness-codex-bridge
-npm install
-npm test
+```powershell
+node .\diagnose.mjs --mcp-config --stored-auth
 ```
 
-## 给你自带 Agent 的一句话安装提示词
+随附的 `profiles/headless-stored-auth.yml` 只是通用启动模板，不含凭据。DSH 自己读取有效登录；桥不提取或复制登录 token。未选择该模式时，使用 DSH headless 的默认认证方式。Windows 入口和环境变量详见 [WINDOWS.md](WINDOWS.md)。
 
-> 请从 https://github.com/Aloneswork/deepseek-harness-codex-bridge 安装并配置 Codex ↔ DeepSeek Harness MCP 双向协作桥；先检查 Node.js、Codex、DSH 和现有配置，保留并备份原配置，安装后做双向消息测试，最后报告所有修改文件、调用链和测试结果。
+## 配对并绑定已有会话
 
-## 安装后有什么
+以下名称、目录和 ID **全部为示例占位**。先换成自己存在的工作区及经核实的已有会话 ID：
 
-- `deepseek-harness-mcp`：供 Codex 或其他 MCP 客户端使用的 stdio MCP 服务。
-- `dsh-codex-mail`：DSH 可通过 Bash 调用的消息盒子和主动聊天命令。
-
-MCP 提供四个工具：
-
-- `delegate_to_deepseek`：新建 DSH 子任务并以 headless 模式执行。
-- `list_deepseek_messages`：读取 DSH 的进度、证据、问题、阻塞和结果。
-- `reply_to_deepseek`：写入 DSH 可读取的持久回复。
-- `get_bridge_task_status`：查看任务归属、状态、工作区和关联的 Codex 任务。
-
-DSH 在每个委派提示中都会收到 `rootTaskId` 和 `taskId`。它可以在终端发送进度：
-
-```sh
-dsh-codex-mail send \
-  --root-task-id ROOT_ID \
-  --task-id TASK_ID \
-  --kind milestone \
-  --body "解析器检查完成" \
-  --progress "100%" \
-  --evidence "测试样例通过"
+```powershell
+node .\server.mjs link-projects --name example-project --codex-workspace 'C:\Projects\CodexWorkspace' --dsh-workspace 'C:\Projects\DshWorkspace'
+node .\server.mjs bind-project-conversation --link-id example-project --thread-id EXISTING_CODEX_THREAD_ID --reason '选择已有协作对话'
+node .\server.mjs bind-project-dsh-session --link-id example-project --session-id EXISTING_DSH_SESSION_ID --reason '选择兼容的已有headless会话'
+node .\server.mjs project-links
 ```
 
-DSH 运行时也可以主动联系 Codex：
+关联项目缺少默认 DSH 绑定、且请求未显式选择已有会话时会报错，不自动创建。普通请求只传 `projectLinkId` 和当前问题，省略两端 ID 即可复用。例如 Codex 调用 `delegate_to_deepseek`：
 
-```sh
-dsh-codex-mail chat \
-  --root-task-id ROOT_ID \
-  --task-id TASK_ID \
-  --kind question \
-  --body "解析器是否保留这个回退逻辑？" \
-  --progress "全部样例已通过" \
-  --evidence "已附测试输出" \
-  --workspace /absolute/project/path
+```json
+{"projectLinkId":"example-project","task":"请检查这个最小复现，并给出原因和建议。"}
 ```
 
-同一 `taskId` 第一次调用 `chat` 会新建并命名 Codex 任务，后续调用继续该任务。这是运行中的主动发起，不是永远在线：DSH 进程停止后，必须由外部调度重新启动，才能再次发消息。
+DSH 调用 `ask_codex` 时使用 `message`，并附简短的 `progress` 或 `evidence`：
 
-## 存储和边界
-
-- 消息和任务记录默认保存在 `~/.dsh-codex-bridge/`，文件权限仅限本机用户。
-- 不要提交或分享消息盒子，其中可能包含项目提示和回复。
-- MCP 客户端超时应不短于 `DSH_BRIDGE_TIMEOUT_MS`，默认值为 `900000`。
-- 委派提示最多 16,000 字符；大输入应放进工作区文件，再把文件路径交给 DSH。
-- 可选变量：`DSH_BIN`、`CODEX_BIN`、`DSH_CODEX_MAILBOX_DIR`、`DSH_BRIDGE_TIMEOUT_MS`、`DSH_CODEX_CHAT_TIMEOUT_MS`。
-
-## 建议协作规则
-
-```md
-- Codex 负责问题定义、任务拆解、协调、决策、集成、验证和最终答复。
-- 只有用户已授权时，Codex 才可免逐次确认调用 DSH。
-- DSH 必须执行收到的子任务，不能把它原样退回或再次转交。
-- DSH 只能用进度、证据、结果、有进展支撑的问题或明确阻塞联系 Codex。
-- 避免同时修改同一文件；委派不会扩大用户授权。
-- 每次调用 DSH 后，都要报告委派内容、DSH 的返回或修改，以及 Codex 的采纳、修改或否决。
+```json
+{"projectLinkId":"example-project","message":"请审查这处修改的边界。","progress":"已完成最小复现。","evidence":"相关文件与测试摘要。"}
 ```
 
-MIT 许可证。本项目与 DeepSeek、OpenAI 均无隶属或官方认可关系。
+同一项未完成请求应保留返回的 `taskId` 和回执。只有确有隔离上下文的需要时，才用 `newConversation: true` 与非空 `newConversationReason` 选择新的 Codex 对话；旧任务不能悄悄改绑。DSH 改绑通过显式 CLI 命令并说明原因。不要用新会话绕过繁忙、排队或超时。
+
+## 工具和终端入口
+
+Codex 角色有四个任务工具：`delegate_to_deepseek`、`list_deepseek_messages`、`reply_to_deepseek`、`get_bridge_task_status`。双方有 `list_project_links`、`read_project_context`、`share_project_context`；DSH 角色另有 `ask_codex`。
+
+`deepseek-harness-mcp` 是 stdio MCP 服务；`dsh-codex-mail` 是邮箱与主动聊天 CLI。未全局安装时，可用 `node ./server.mjs` 运行相同命令。完整命令帮助：
+
+```powershell
+node .\server.mjs help
+```
+
+终端中的 `send`、`inbox`、`status`、`chat` 用于跟踪已分配任务。项目模式优先使用已有默认绑定；未配对流程的首次 `chat` 仍可创建 Codex 线程。DSH 进程停止后，需要外部调用再次启动它才能继续协作；桥不是永久在线的聊天机器人。
+
+## 数据与验证边界
+
+消息、绑定与投递状态默认位于 `~/.dsh-codex-bridge/`；完整上下文快照可位于工作区的 `.dsh-codex-bridge/`。这些是使用者的运行数据，不应提交或分享。共享工具仅交换明确发布的摘要，不扫描全部私人聊天历史。
+
+大材料使用工作区文件路径；避免把共享记录全文反复复制进请求。默认超时为 `900000` 毫秒，MCP 客户端等待时间不应更短。可选变量包括 `DSH_BIN`、`DSH_DESKTOP_DIR`、`DSH_BRIDGE_PATCH`、`CODEX_BIN`、`DSH_CODEX_MAILBOX_DIR`、`DSH_BRIDGE_TIMEOUT_MS`、`DSH_CODEX_CHAT_TIMEOUT_MS`、`DSH_BRIDGE_ROLE` 与 `DSH_BRIDGE_LEAD`。
+
+`npm test` 使用隔离临时目录和假 Agent，不需要账号或模型调用。真实联调需使用者自行配置模型与登录，明确授权，并核对真实回复和会话 ID。仓库包含跨平台 CI 定义；是否通过以对应提交的实际 CI 结果为准。
+
+可在本地执行 `npm pack` 生成安装包。发布前检查实际包文件清单，排除运行邮箱、真实配置、日志和测试证据。MIT 许可证与原版权声明必须随代码和发行包保留。
