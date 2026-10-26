@@ -1,7 +1,46 @@
+# Dependencies and local tooling
 node_modules/
-*.tgz
+.tools/
 .DS_Store
+Thumbs.db
+
+# Private bridge/runtime state
+.dsh-codex-bridge/
+.dsh/
+/tasks/
+/messages/
+/project-context/
+/project-conversations/
+/project-context-delivery/
+.credentials.yaml
+.credentials.yml
 .env
 .env.*
-.dsh-codex-bridge/
-.tools/
+!.env.example
+*.local.json
+*.local.yml
+*.local.yaml
+registered-mcp.json
+registered-dsh-mcp.json
+
+# Generated packages, logs and verification evidence
+*.tgz
+*.zip
+*.log
+logs/
+artifacts/
+coverage/
+test-results/
+tests/evidence/
+local/
+.screenshots/
+
+# User media and session exports
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.mp4
+*.webm
+*.jsonl
+*.jsonl.zstd

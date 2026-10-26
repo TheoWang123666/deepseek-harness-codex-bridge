@@ -1,13 +1,7 @@
 {
   "name": "deepseek-harness-mcp-bridge",
-  "version": "0.2.2",
+  "version": "0.2.9-windows.2",
   "description": "A bidirectional DeepSeek Harness and Codex MCP collaboration bridge.",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Aloneswork/deepseek-harness-codex-bridge.git"
-  },
-  "homepage": "https://github.com/Aloneswork/deepseek-harness-codex-bridge#readme",
-  "bugs": "https://github.com/Aloneswork/deepseek-harness-codex-bridge/issues",
   "type": "module",
   "bin": {
     "deepseek-harness-mcp": "server.mjs",
@@ -15,9 +9,20 @@
   },
   "files": [
     "server.mjs",
+    "runtime.mjs",
+    "project-links.mjs",
+    "project-context-delivery.mjs",
+    "bridge-core.mjs",
+    "queued-reply.mjs",
+    "diagnose.mjs",
+    "profiles/headless-stored-auth.yml",
+    "scripts/Start-Bridge.ps1",
+    "scripts/live-collaboration-test.mjs",
     "README.md",
     "README.en.md",
-    "LICENSE"
+    "WINDOWS.md",
+    "LICENSE",
+    "UPSTREAM.md"
   ],
   "engines": {
     "node": ">=22.19.0"
@@ -32,7 +37,9 @@
   ],
   "scripts": {
     "prepack": "npm test",
-    "test": "node test.mjs"
+    "test": "node --test runtime.test.mjs && node bridge-core.test.mjs && node project-context-delivery.test.mjs && node project-dsh-binding.test.mjs && node test.mjs && node reverse.test.mjs && node --test project-links.test.mjs",
+    "test:live": "node scripts/live-collaboration-test.mjs",
+    "check": "node diagnose.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
